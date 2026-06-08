@@ -13,6 +13,8 @@ A live International Space Station tracker built to **showcase two repositories 
 
 ISSWatch itself is **Laravel 13 + Inertia + React + TypeScript + MUI**.
 
+![The ISSWatch /flows dashboard — each ISS lookup rendered as a single nestedflowtracker trace tree spanning ISSWatch and satellite-demo, linked by one trace_id over the W3C traceparent header](docs/flows-dashboard.png)
+
 ## Architecture
 
 ```
