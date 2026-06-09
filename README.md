@@ -91,46 +91,54 @@ caching each **successful** fix for `ISS_CACHE_SECONDS` and waiting up to `ISS_H
 response; ISSWatch waits `SATELLITE_TIMEOUT` for satellite-demo. Tune these in the respective `.env`
 files. The Live page also skips a poll while a previous one is still in flight.
 
-## Deploying to Laravel Forge
+## Deploying to Laravel Cloud
 
-Deploy **ISSWatch** and **satellite-demo** as **two sites on one Forge server**, so they share that
-server's MySQL for the cross-service trace store.
+Run **ISSWatch** and **satellite-demo** as two apps in one [Laravel Cloud](https://cloud.laravel.com)
+project. Cloud builds from GitHub (it runs `npm run build` for ISSWatch automatically), and
+scale-to-zero keeps an idle demo cheap. Its managed database is **PostgreSQL**; both apps share one
+Postgres database for the cross-service trace store.
 
-1. **Databases**: create `flow_shared` (the shared trace store) plus an app DB for each site
-   (`isswatch`, `satellite`).
-2. **satellite-demo site** — connect `adelinferaru/satellite-demo`. Env:
+1. **Databases** — on your Postgres cluster create three databases: `isswatch` and `satellite` (each
+   app's own data) and **`flow_shared`** (the shared trace store both apps write to).
+2. **satellite-demo app** — connect `adelinferaru/satellite-demo` and attach the `satellite` database
+   (Cloud injects `DB_*`). Then set:
    ```dotenv
    APP_ENV=production
    APP_DEBUG=false
-   APP_URL=https://satellite-demo.your-domain
-   DB_CONNECTION=mysql            # + DB_DATABASE=satellite, DB_USERNAME, DB_PASSWORD
+   DB_CONNECTION=pgsql
    FLOW_COMPONENT=satellite
    FLOW_AUTO_HTTP=false
-   FLOW_DB_DRIVER=mysql
-   FLOW_DB_HOST=127.0.0.1
-   FLOW_DB_DATABASE=flow_shared   # + FLOW_DB_USERNAME, FLOW_DB_PASSWORD
+   FLOW_DB_DRIVER=pgsql
+   FLOW_DB_DATABASE=flow_shared       # host/port/user/pass inherit from DB_* on the same cluster
    ```
-   Deploy script: `composer install --no-dev -o` · `php artisan migrate --force` ·
-   `php artisan migrate --database=flow --path=database/migrations --force` ·
-   `php artisan config:cache && php artisan route:cache`
-3. **ISSWatch site** — connect `adelinferaru/isswatch`. Same `FLOW_DB_*` (point at the **same**
-   `flow_shared`), plus:
+   Deploy command:
+   `php artisan migrate --force && php artisan migrate --database=flow --path=database/migrations --force`
+3. **ISSWatch app** — connect `adelinferaru/isswatch` and attach the `isswatch` database. Same flow
+   settings (point at the **same** `flow_shared`), plus:
    ```dotenv
    APP_ENV=production
    APP_DEBUG=false
-   APP_URL=https://isswatch.your-domain
-   SATELLITE_BASE_URL=https://satellite-demo.your-domain
+   DB_CONNECTION=pgsql
    FLOW_COMPONENT=isswatch
+   FLOW_DB_DRIVER=pgsql
+   FLOW_DB_DATABASE=flow_shared
+   SATELLITE_BASE_URL=https://<your satellite-demo app URL>
    ```
-   Deploy script: `composer install --no-dev -o` · `npm ci && npm run build` ·
-   `php artisan migrate --force` ·
-   `php artisan migrate --database=flow --path=database/migrations --force` ·
-   `php artisan config:cache && php artisan route:cache`
+   Deploy command: same two `migrate` lines as above (the Vite build runs automatically).
 
-The flow migration against `flow_shared` is idempotent (a `migrations` table inside that DB tracks it),
-so running it from both deploy scripts is safe. Visit `https://isswatch.your-domain` → `/flows` shows
-the single cross-service tree spanning both sites. The `viewFlow` gate is open (public showcase) —
-tighten it in `app/Providers/AppServiceProvider.php` to restrict who can see `/flow`.
+Notes:
+- The flow store's host/port/user/password **inherit from each app's `DB_*`**, so you only set
+  `FLOW_DB_DRIVER` + `FLOW_DB_DATABASE`. (To put the trace store on a different cluster, set the full
+  `FLOW_DB_HOST`/`FLOW_DB_PORT`/`FLOW_DB_USERNAME`/`FLOW_DB_PASSWORD`.)
+- Cloud runs `config:cache` on deploy; every setting here is read via `config()`, so it survives it.
+- The flow migration against `flow_shared` is idempotent, so running it from both apps is safe.
+- With scale-to-zero, the first request wakes ISSWatch (<500 ms); its first chained call also wakes
+  satellite-demo — a one-time blip.
+- The `viewFlow` gate is open (public showcase) — tighten it in
+  `app/Providers/AppServiceProvider.php` to restrict who can see `/flow`.
+
+Visit the ISSWatch app URL → `/flows` shows the single cross-service tree spanning both apps. (The
+same env vars work on Forge/Railway with `mysql` instead of `pgsql`.)
 
 ## Tests
 
